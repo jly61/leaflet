@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>leaflet克里金空间插值</title>
+    <style>
+        html, body, #map {
+            font-size: 14px;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            cursor: default;
+        }
+        .icon {
+            width: 5px;
+            height: 5px;
+            background: forestgreen;
+            border-radius: 50%;
+        }
+        .icon-red {
+            width: 5px;
+            height: 5px;
+            background: rgba(255, 0, 0, 0.7);
+            border-radius: 50%;
+        }
+        body > #sidebar {
+            display: none;
+        }
+        /* 侧边栏表格样式 */
+        .station-info {
+            width: 98%;
+            border-collapse: collapse;
+            color: #606266
+        }
+        .station-info td {
+            box-sizing: border-box;
+            width: 50%;
+            height: 48px;
+            padding: 5px;
+            border: 1px solid #555555;
+            text-align: center;
+        }
+        /* 图例 */
+        .legend {
+            text-align: left;
+            line-height: 18px;
+            color: #555;
+        }
+
+        .legend i {
+            width: 18px;
+            height: 18px;
+            float: left;
+            margin-right: 8px;
+            opacity: 0.7;
+        }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.5.1/dist/leaflet.css"/>
+    <script src="https://cdn.bootcss.com/jquery/3.0.0/jquery.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.5.1/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/esri-leaflet@2.2.4/dist/esri-leaflet.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="js/kriging.js"></script>
+    <!--    <script src="point.js"></script>-->
+    <script src="js/world.js"></script>
+<!--    侧边栏-->
+    <link rel="stylesheet" href="style/L.Control.Sidebar.css" />
+    <script src="js/L.Control.Sidebar.js"></script>
+<!--    marker高亮-->
+    <link rel="stylesheet" href="style/highlight.css">
+    <script src="js/highlight.js"></script>
+</head>
+<body>
+<div id="sidebar">
+    <h2 class="station-name">气象站名</h2>
+    <table class="station-info">
+        <tr>
+            <td>站点号</td>
+            <td class="station-id"></td>
+        </tr>
+        <tr>
+            <td>经度</td>
+            <td class="lon"></td>
+        </tr>
+        <tr>
+            <td>纬度()</td>
+            <td class="lat"></td>
+        </tr>
+        <tr>
+            <td>观测场海拔(m)</td>
+            <td class="observe-alt"></td>
+        </tr>
+        <tr>
+            <td>气温(&#8451;)</td>
+            <td class="temp"></td>
+        </tr>
+    </table>
+</div>
+<canvas id="canvasMap" style="display:none;"></canvas>
+<div id="map">
+    <div></div>
+</div>
+<script type="module">
+    import {formatPoint} from "./util/format.js"
+
+    const map = L.map('map', {
+        center: [29.65953686, 102.8696333],
+        zoom: 7,
+    });
+    const url = "http://webrd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scale=1&style=8";
+    new L.TileLayer(url, {
+        subdomains: "1234"
+    }).addTo(map);
+
+    // 侧边栏
+    const sidebar = L.control.sidebar('sidebar', {
+        closeButton: true,
+        position: 'left'
+    });
+    map.addControl(sidebar);
+    // setTimeout(function () {
+    //     sidebar.show();
+    // }, 500);
+    map.on('click', function () {
+        sidebar.hide();
+    });
+
+    let positions = [];
+    world[0].forEach(function (point) {
+        positions.push([point[1], point[0]]);
+    });
+
+    const xlim = [97.3481, 108.5467];
+    const ylim = [26.0459, 34.3129];
+    const param = {
+        month: 6,
+        day: 27,
+        hour: 10
+    };
+    let points = [];
+    axios.get('http://localhost:3000/weathers/kri-hour', {params: param}).then(res => {
+        points = res.data.result;
+        console.log(points)
+        function loadkriging() {
+            const canvas = document.getElementById("canvasMap");
+            canvas.width = 1000;
+            canvas.height = 1000;
+            const n = points.length;
+            let t = []; // 温度
+            let x = []; // 经度
+            let y = []; // 纬度
+            let stationId = [];  // 站点号
+            let stationName = []; // 站点名
+            let observe_alt = []; // 观测场海拔
+            const myIcon = L.divIcon({
+                className: 'icon'
+            });
+            const redIcon = L.divIcon({
+                className: 'icon-red'
+            });
+            for (let i = 0; i < n; i++) {
+                t.push(parseFloat(points[i].TEM));
+                x.push(parseFloat(points[i].docs[0].lon));  // lon
+                y.push(parseFloat(points[i].docs[0].lat));  // lat
+                stationName.push(points[i].docs[0].Station_name);
+                stationId.push(points[i].docs[0].Station_Id_C);
+                observe_alt.push(points[i].docs[0].Observe_alt);
+                // L.circle([y[i], x[i]], {radius: 1}).addTo(map);
+                if(points[i].TEM < 29) {
+                    L.marker([y[i], x[i]], {icon: myIcon}).addTo(map).on('click', function (e) {
+                        let point = formatPoint(y[i], x[i]);
+                        document.querySelector('.station-name').innerHTML = `气象站名：${stationName[i]}`;
+                        document.querySelector('.station-id').innerHTML = stationId[i];
+                        document.querySelector('.lon').innerHTML = point[1];
+                        document.querySelector('.lat').innerHTML = point[0];
+                        document.querySelector('.observe-alt').innerHTML = `${observe_alt[i]}m`;
+                        document.querySelector('.temp').innerHTML = t[i] + '&#8451';
+                        sidebar.show();
+                    }).on('mouseover', function (e) {
+                        e.target.options.className = 'icon-hover'
+                        this.bindPopup(`${stationName[i]}:${t[i]}&#8451`).openPopup()
+                    }).on('mouseout', function () {
+                        this.closePopup()
+                    })
+                } else {
+                    L.marker([y[i], x[i]], {icon: redIcon, highlight: "permanent"}).addTo(map).on('click', function (e) {
+                        let point = formatPoint(y[i], x[i]);
+                        document.querySelector('.station-name').innerHTML = `气象站名：${stationName[i]}`;
+                        document.querySelector('.station-id').innerHTML = stationId[i];
+                        document.querySelector('.lon').innerHTML = point[1];
+                        document.querySelector('.lat').innerHTML = point[0];
+                        document.querySelector('.observe-alt').innerHTML = `${observe_alt[i]}m`;
+                        document.querySelector('.temp').innerHTML = t[i] + '&#8451';
+                        sidebar.show();
+                    }).on('mouseover', function (e) {
+                        e.target.options.className = 'icon-hover'
+                        this.bindPopup(`${stationName[i]}:${t[i]}&#8451`).openPopup()
+                    }).on('mouseout', function () {
+                        this.closePopup()
+                    })
+                }
+
+            }
+
+            // 根据属性范围设置渲染颜色
+            // function getColor(d) {
+            //     return d > 1000 ? '#800026' :
+            //         d > 500 ? '#BD0026' :
+            //             d > 200 ? '#E31A1C' :
+            //                 d > 100 ? '#FC4E2A' :
+            //                     d > 50 ? '#FD8D3C' :
+            //                         d > 20 ? '#FEB24C' :
+            //                             d > 10 ? '#FED976' :
+            //                                 '#FFEDA0';
+            // }
+            // //图例
+            // var legend = L.control({position:'bottomright'});
+            //
+            // legend.onAdd = function(map){
+            //     var div = L.DomUtil.create('div','info legend'),
+            //         grades = [0,10,20,50,100,200,500,1000],
+            //         labels=[];
+            //     for(var i=0;i<grades.length;i++){
+            //         div.innerHTML +=
+            //             '<i style="background:'+getColor(grades[i]+1)+'"></i>'+
+            //             grades[i]+(grades[i+1]?'&ndash;'+grades[i+1]+'<br>':'+');
+            //     }
+            //     return div;
+            // }
+            // legend.addTo(map);
+
+
+
+            let variogram = kriging.train(t, x, y, "exponential", 0, 100);
+            const width = 0.05;
+            let grid = kriging.grid(world, variogram, width);
+            const colors = ['#00A600', '#01A600', '#03A700', '#04A700', '#05A800', '#07A800', '#08A900', '#09A900', '#0BAA00', '#0CAA00', '#0DAB00', '#0FAB00', '#10AC00', '#12AC00', '#13AD00', '#14AD00', '#16AE00', '#17AE00', '#19AF00', '#1AAF00', '#1CB000', '#1DB000', '#1FB100', '#20B100', '#22B200', '#23B200', '#25B300', '#26B300', '#28B400', '#29B400', '#2BB500', '#2CB500', '#2EB600', '#2FB600', '#31B700', '#33B700', '#34B800', '#36B800', '#37B900', '#39B900', '#3BBA00', '#3CBA00', '#3EBB00', '#3FBB00', '#41BC00', '#43BC00', '#44BD00', '#46BD00', '#48BE00', '#49BE00', '#4BBF00', '#4DBF00', '#4FC000', '#50C000', '#52C100', '#54C100', '#55C200', '#57C200', '#59C300', '#5BC300', '#5DC400', '#5EC400', '#60C500', '#62C500', '#64C600', '#66C600', '#67C700', '#69C700', '#6BC800', '#6DC800', '#6FC900', '#71C900', '#72CA00', '#74CA00', '#76CB00', '#78CB00', '#7ACC00', '#7CCC00', '#7ECD00', '#80CD00', '#82CE00', '#84CE00', '#86CF00', '#88CF00', '#8AD000', '#8BD000', '#8DD100', '#8FD100', '#91D200', '#93D200', '#95D300', '#97D300', '#9AD400', '#9CD400', '#9ED500', '#A0D500', '#A2D600', '#A4D600', '#A6D700', '#A8D700', '#AAD800', '#ACD800', '#AED900', '#B0D900', '#B2DA00', '#B5DA00', '#B7DB00', '#B9DB00', '#BBDC00', '#BDDC00', '#BFDD00', '#C2DD00', '#C4DE00', '#C6DE00', '#C8DF00', '#CADF00', '#CDE000', '#CFE000', '#D1E100', '#D3E100', '#D6E200', '#D8E200', '#DAE300', '#DCE300', '#DFE400', '#E1E400', '#E3E500', '#E6E600', '#E6E402', '#E6E204', '#E6E105', '#E6DF07', '#E6DD09', '#E6DC0B', '#E6DA0D', '#E6D90E', '#E6D710', '#E6D612', '#E7D414', '#E7D316', '#E7D217', '#E7D019', '#E7CF1B', '#E7CE1D', '#E7CD1F', '#E7CB21', '#E7CA22', '#E7C924', '#E8C826', '#E8C728', '#E8C62A', '#E8C52B', '#E8C42D', '#E8C32F', '#E8C231', '#E8C133', '#E8C035', '#E8BF36', '#E9BE38', '#E9BD3A', '#E9BC3C', '#E9BB3E', '#E9BB40', '#E9BA42', '#E9B943', '#E9B945', '#E9B847', '#E9B749', '#EAB74B', '#EAB64D', '#EAB64F', '#EAB550', '#EAB552', '#EAB454', '#EAB456', '#EAB358', '#EAB35A', '#EAB35C', '#EBB25D', '#EBB25F', '#EBB261', '#EBB263', '#EBB165', '#EBB167', '#EBB169', '#EBB16B', '#EBB16C', '#EBB16E', '#ECB170', '#ECB172', '#ECB174', '#ECB176', '#ECB178', '#ECB17A', '#ECB17C', '#ECB17E', '#ECB27F', '#ECB281', '#EDB283', '#EDB285', '#EDB387', '#EDB389', '#EDB38B', '#EDB48D', '#EDB48F', '#EDB591', '#EDB593', '#EDB694', '#EEB696', '#EEB798', '#EEB89A', '#EEB89C', '#EEB99E', '#EEBAA0', '#EEBAA2', '#EEBBA4', '#EEBCA6', '#EEBDA8', '#EFBEAA', '#EFBEAC', '#EFBFAD', '#EFC0AF', '#EFC1B1', '#EFC2B3', '#EFC3B5', '#EFC4B7', '#EFC5B9', '#EFC7BB', '#F0C8BD', '#F0C9BF', '#F0CAC1', '#F0CBC3', '#F0CDC5', '#F0CEC7', '#F0CFC9', '#F0D1CB', '#F0D2CD', '#F0D3CF', '#F1D5D1', '#F1D6D3', '#F1D8D5', '#F1D9D7', '#F1DBD8', '#F1DDDA', '#F1DEDC', '#F1E0DE', '#F1E2E0', '#F1E3E2', '#F2E5E4', '#F2E7E6', '#F2E9E8', '#F2EBEA', '#F2ECEC', '#F2EEEE', '#F2F0F0', '#F2F2F2']
+
+            kriging.plot(canvas, grid, [97.3481, 108.5467], [26.0459, 34.3129], colors);
+        }
+
+        function returnImgae() {
+            const mycanvas = document.getElementById("canvasMap");
+            return mycanvas.toDataURL("image/png");
+        }
+
+        loadkriging();
+
+        const imageBounds = [[26.0459, 97.3481], [34.3129, 108.5467]];
+        L.imageOverlay(returnImgae(), imageBounds, {opacity: 0.8}).addTo(map);
+    })
+</script>
+</body>
+</html>

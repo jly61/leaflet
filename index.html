@@ -1,0 +1,175 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>arcgis api 4.x for js 结合Echarts4实现散点图效果</title>
+    <style>
+        html, body, #map {
+            padding: 0;
+            margin: 0;
+            height: 100%;
+            width: 100%;
+        }
+    </style>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <link rel="stylesheet" href="//js.arcgis.com/4.11/esri/themes/light/main.css"/>
+    <script src="//cdn.bootcss.com/echarts/4.2.1/echarts.js"></script>
+    <script>
+        var dojoConfig = {
+            parseOnLoad: true,
+            packages: [{
+                name: "src",
+                //location: "/src"
+                location: "http://localhost:3000/arcgis_js_api/library/4.12/dojo/src"
+            }]
+        };
+    </script>
+    <script src="https://js.arcgis.com/4.11/"></script>
+    <script>
+        require([
+            "esri/Map",
+            "esri/Basemap",
+            "esri/layers/TileLayer",
+            "12-5/js/echartsLayer",
+            "esri/views/MapView",
+            "esri/views/SceneView",
+            "dojo/domReady!"
+        ], function (
+            Map, Basemap, TileLayer, echartsLayer, MapView, SceneView
+        ) {
+            const layer = new TileLayer({
+                url: "http://map.geoq.cn/ArcGIS/rest/services/ChinaOnlineStreetPurplishBlue/MapServer"
+            });
+            const customBasemap = new Basemap({
+                baseLayers: [layer],
+                title: "Custom Basemap",
+                id: "myBasemap"
+            });
+            const map = new Map({
+                basemap: customBasemap
+            });
+            // const view = new MapView({
+                var view = new SceneView({
+                center: [110.62, 36.32], // long, lat
+                container: 'map',
+                map: map,
+                zoom: 4
+            });
+            const param = {
+                month: 6,
+                day: 27,
+                hour: 1
+            };
+            let data = [];
+            let geoCoordMap = {};
+            axios.get('http://localhost:3000/weathers/kri-hour', {params: param}).then(res => {
+                const result = res.data.result;
+                console.log(result)
+                result.forEach(item => {
+                    data.push({
+                        name: item.docs[0].Station_name,
+                        value: item.TEM
+                    });
+                    geoCoordMap[item.docs[0].Station_name] = [item.docs[0].lon, item.docs[0].lat]
+                })
+            });
+            view.when(function () {
+                var convertData = function (data) {
+                    var res = [];
+                    for (var i = 0; i < data.length; i++) {
+                        var geoCoord = geoCoordMap[data[i].name];
+                        if (geoCoord) {
+                            res.push({
+                                name: data[i].name,
+                                value: geoCoord.concat(data[i].value)
+                            });
+                        }
+                    }
+                    return res;
+                };
+
+                var color = ['#a6c84c', '#ffa022', '#46bee9'];
+                var series = [
+                    {
+                        name: '温度',
+                        type: 'scatter',
+                        coordinateSystem: 'arcgis',
+                        data: convertData(data),
+                        symbolSize: function (val) {
+                            return val[2] / 2;
+                        },
+                        label: {
+                            normal: {
+                                formatter: '{b}',
+                                position: 'right',
+                                show: false
+                            },
+                            emphasis: {
+                                show: true
+                            }
+                        },
+                        itemStyle: {
+                            normal: {
+                                color: 'yellow'
+                            }
+                        }
+                    },
+                    {
+                        name: 'Top 5',
+                        type: 'effectScatter',
+                        coordinateSystem: 'arcgis',
+                        data: convertData(data.sort(function (a, b) {
+                            return b.value - a.value;
+                        }).slice(0, 6)),
+                        symbolSize: function (val) {
+                            return val[2] / 2;
+                        },
+                        showEffectOn: 'render',
+                        rippleEffect: {
+                            brushType: 'stroke'
+                        },
+                        hoverAnimation: true,
+                        label: {
+                            normal: {
+                                formatter: '{b}',
+                                position: 'right',
+                                show: true
+                            }
+                        },
+                        itemStyle: {
+                            normal: {
+                                color: 'red',
+                                shadowBlur: 10,
+                                //shadowColor: '#333'
+                                shadowColor: 'red'
+                            }
+                        },
+                        zlevel: 1
+                    }
+                ]
+                var option = {
+                    title: {
+                        text: 'arcgis api 4.x for js 结合Echarts4实现散点图',
+                        left: 'center',
+                        textStyle: {
+                            color: '#fff'
+                        }
+                    },
+                    tooltip: {
+                        trigger: 'item'
+                    },
+                    series: series
+                };
+                var chart = new echartsLayer(view, option);
+                view.on('mousemove', function (e) {
+
+                })
+            });
+
+        });
+    </script>
+</head>
+<body>
+<div id="map"></div>
+</body>
+</html>
